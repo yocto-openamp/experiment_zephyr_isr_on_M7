@@ -5,6 +5,7 @@
 #include <zephyr/drivers/dac.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 #include <math.h>
 
 #ifndef M_PI
@@ -39,10 +40,33 @@ LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
 #define ADC2_NODE DT_NODELABEL(adc2)
 #define ADC3_NODE DT_NODELABEL(adc3)
 
+#define GPIO_DIRECT_IN_PORT_NODE DT_NODELABEL(gpiof)
+#define GPIO_DIRECT_OUT_PORT_NODE DT_NODELABEL(gpioe)
+#define GPIO_DIRECT_IN_PIN 15
+#define GPIO_DIRECT_OUT_PIN 13
+
+#define EXTI_DIRECT_SW0_LINE BIT(sw0_in.pin)
+#define EXTI_DIRECT_GPIO_LINE BIT(GPIO_DIRECT_IN_PIN)
+#define EXTI_DIRECT_LINES (EXTI_DIRECT_SW0_LINE | EXTI_DIRECT_GPIO_LINE)
+
+#define SW0_GPIO ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(SW0_NODE, gpios)))
+#define LED0_GPIO ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(LED0_NODE, gpios)))
+#define GPIO_DIRECT_IN_GPIO ((GPIO_TypeDef *)DT_REG_ADDR(GPIO_DIRECT_IN_PORT_NODE))
+#define GPIO_DIRECT_OUT_GPIO ((GPIO_TypeDef *)DT_REG_ADDR(GPIO_DIRECT_OUT_PORT_NODE))
+
+#define GPIO_DIRECT_IRQ_PRIO 0
+#if defined(CONFIG_ZERO_LATENCY_IRQS)
+#define GPIO_DIRECT_IRQ_FLAGS IRQ_ZERO_LATENCY
+#else
+#define GPIO_DIRECT_IRQ_FLAGS 0
+#endif
+
 static const struct gpio_dt_spec gpio_in = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_in_gpios);
 static const struct gpio_dt_spec gpio_out = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_out_gpios);
 static const struct gpio_dt_spec sw0_in = GPIO_DT_SPEC_GET(SW0_NODE, gpios);
 static const struct gpio_dt_spec led0_out = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+static const struct device *const gpio_direct_in_port = DEVICE_DT_GET(GPIO_DIRECT_IN_PORT_NODE);
+static const struct device *const gpio_direct_out_port = DEVICE_DT_GET(GPIO_DIRECT_OUT_PORT_NODE);
 
 static const struct device *const dac1_dev = DEVICE_DT_GET(DAC1_NODE);
 static const struct device *const adc1_dev = DEVICE_DT_GET(ADC1_NODE);
@@ -62,6 +86,36 @@ static void sw0_isr(const struct device *port, struct gpio_callback *cb, uint32_
 	if (in_val >= 0) {
 		(void)gpio_pin_set_dt(&led0_out, in_val > 0);
 	}
+}
+
+ISR_DIRECT_DECLARE(exti15_10_direct_isr)
+{
+	uint32_t pending = EXTI->PR & EXTI_DIRECT_LINES;
+
+	if (pending == 0U) {
+		return 0;
+	}
+
+	/* Clear pending bits first to minimize IRQ service latency. */
+	EXTI->PR = pending;
+
+	if ((pending & EXTI_DIRECT_SW0_LINE) != 0U) {
+		if ((SW0_GPIO->IDR & BIT(sw0_in.pin)) != 0U) {
+			LED0_GPIO->BSRR = BIT(led0_out.pin);
+		} else {
+			LED0_GPIO->BSRR = BIT(led0_out.pin + 16);
+		}
+	}
+
+	if ((pending & EXTI_DIRECT_GPIO_LINE) != 0U) {
+		if ((GPIO_DIRECT_IN_GPIO->IDR & BIT(GPIO_DIRECT_IN_PIN)) != 0U) {
+			GPIO_DIRECT_OUT_GPIO->BSRR = BIT(GPIO_DIRECT_OUT_PIN);
+		} else {
+			GPIO_DIRECT_OUT_GPIO->BSRR = BIT(GPIO_DIRECT_OUT_PIN + 16);
+		}
+	}
+
+	return 0;
 }
 
 static void gpio_in_isr(const struct device *port, struct gpio_callback *cb, uint32_t pins)
@@ -90,6 +144,16 @@ static int init_sw0_led0_isr(void)
 		return -ENODEV;
 	}
 
+	if (!device_is_ready(gpio_direct_in_port)) {
+		LOG_ERR("GPIO_DIRECT_IN device not ready");
+		return -ENODEV;
+	}
+
+	if (!device_is_ready(gpio_direct_out_port)) {
+		LOG_ERR("GPIO_DIRECT_OUT device not ready");
+		return -ENODEV;
+	}
+
 	ret = gpio_pin_configure_dt(&sw0_in, GPIO_INPUT);
 	if (ret != 0) {
 		LOG_ERR("sw0 configure failed: %d", ret);
@@ -115,8 +179,39 @@ static int init_sw0_led0_isr(void)
 		return ret;
 	}
 
+	ret = gpio_pin_configure(gpio_direct_in_port, GPIO_DIRECT_IN_PIN, GPIO_INPUT);
+	if (ret != 0) {
+		LOG_ERR("gpio_direct_in configure failed: %d", ret);
+		return ret;
+	}
+
+	ret = gpio_pin_configure(gpio_direct_out_port, GPIO_DIRECT_OUT_PIN, GPIO_OUTPUT_INACTIVE);
+	if (ret != 0) {
+		LOG_ERR("gpio_direct_out configure failed: %d", ret);
+		return ret;
+	}
+
+	/* PC13 (sw0) and PF15 (GPIO_DIRECT_IN) share EXTI15_10. Handle both directly. */
+	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+	SYSCFG->EXTICR[3] &= ~(SYSCFG_EXTICR4_EXTI13 | SYSCFG_EXTICR4_EXTI15);
+	SYSCFG->EXTICR[3] |= SYSCFG_EXTICR4_EXTI13_PC | SYSCFG_EXTICR4_EXTI15_PF;
+
+	EXTI->IMR |= EXTI_DIRECT_LINES;
+	EXTI->RTSR |= EXTI_DIRECT_LINES;
+	EXTI->FTSR |= EXTI_DIRECT_LINES;
+	EXTI->PR = EXTI_DIRECT_LINES;
+
+	IRQ_DIRECT_CONNECT(EXTI15_10_IRQn, GPIO_DIRECT_IRQ_PRIO,
+			exti15_10_direct_isr, GPIO_DIRECT_IRQ_FLAGS);
+	irq_enable(EXTI15_10_IRQn);
+
+	/* EXTI15_10 is serviced by the direct IRQ handler for low-latency comparison. */
+
 	LOG_INF("isrButton ready (in: port=%s pin=%d, out: port=%s pin=%d)",
 		sw0_in.port->name, sw0_in.pin, led0_out.port->name, led0_out.pin);
+	LOG_INF("isrGpioDirect ready (in: port=%s pin=%d, out: port=%s pin=%d)",
+		gpio_direct_in_port->name, GPIO_DIRECT_IN_PIN,
+		gpio_direct_out_port->name, GPIO_DIRECT_OUT_PIN);
 	return 0;
 }
 

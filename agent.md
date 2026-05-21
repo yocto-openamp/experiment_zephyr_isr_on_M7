@@ -22,6 +22,8 @@ ISR:
 
 * isrButton: Call a isr: The isrButton should read the `user button` and write the `user led`.
 * isrGpio: GPIO_IN: The isrGpio should write the value of GPIO_IN to GPIO_OUT.
+* isrGpioDirect: GPIO_DIRECT_IN: The isrGpioDirect should write the value of GPIO_DIRECT_IN to GPIO_DIRECT_OUT.
+
 
 ### ISR pin mapping
 
@@ -31,6 +33,9 @@ ISR:
 * isrGpio:
   * GPIO_IN: PG9 (CN10/D0 pin 16)
   * GPIO_OUT: PG14 (CN10/D1 pin 14)
+* isrGpioDirect:
+  * GPIO_DIRECT_IN: PF15 (CN10/D2 pin 12)
+  * GPIO_DIRECT_OUT: PE13 (CN10/D3 pin 10)
 
 Note: isrGpio pins (PG9/PG14) are independent from ADC/DAC pins. ADC/DAC stays on the analog-capable pins documented above.
 

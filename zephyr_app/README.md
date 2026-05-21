@@ -12,7 +12,6 @@ west init .
 west update
 
 uv pip install -r zephyr/scripts/requirements-base.txt
-
 ```
 
 ## Build
