@@ -14,6 +14,14 @@ west update
 uv pip install -r zephyr/scripts/requirements-base.txt
 ```
 
+## Install Zephyr SDK
+
+```sh
+$ west sdk list
+FATAL ERROR: No Zephyr SDK installed.
+$ west sdk install
+```
+
 ## Build
 
 From the repository root:
