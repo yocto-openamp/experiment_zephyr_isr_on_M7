@@ -5,7 +5,7 @@
 To install `west`, use the following command:
 
 ```sh
-uv venv --python 3.13.5
+uv venv --python 3.13.13
 . .venv/bin/activate
 uv pip install west
 west init .
