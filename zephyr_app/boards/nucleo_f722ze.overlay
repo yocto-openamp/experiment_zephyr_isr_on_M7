@@ -1,9 +1,22 @@
+/*
+See also:
+zephyr/boards/st/nucleo_f722ze/nucleo_f722ze.dts
+*/
+
 #include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
 	zephyr,user {
-		gpio-in-gpios = <&gpiog 9 GPIO_ACTIVE_HIGH>;
-		gpio-out-gpios = <&gpiog 14 GPIO_ACTIVE_HIGH>;
+		gpio-hal-in-gpios = <&gpiog 9 GPIO_ACTIVE_HIGH>;
+		gpio-hal-out-gpios = <&gpiog 14 GPIO_ACTIVE_HIGH>;
+
+		gpio-direct-in-gpios = <&gpiof 15 GPIO_ACTIVE_HIGH>;
+		gpio-direct-out-gpios = <&gpioe 13 GPIO_ACTIVE_HIGH>;
+
+		/* nucleo_f722ze.dts: sw0 = &user_button */
+		gpio-direct-button-in-gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+		/* led1 = &blue_led */
+		gpio-direct-led-out-gpios = <&gpiob 7 GPIO_ACTIVE_HIGH>;
 	};
 };
 

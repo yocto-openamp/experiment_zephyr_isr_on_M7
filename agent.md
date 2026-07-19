@@ -20,24 +20,26 @@ Idle time:
 
 ISR:
 
-* isrButton: Call a isr: The isrButton should read the `user button` and write the `user led`.
-* isrGpio: GPIO_IN: The isrGpio should write the value of GPIO_IN to GPIO_OUT.
-* isrGpioDirect: GPIO_DIRECT_IN: The isrGpioDirect should write the value of GPIO_DIRECT_IN to GPIO_DIRECT_OUT.
+* ISR_BUTTON_LED_DIRECT: Call a isr: The ISR_BUTTON_LED_DIRECT should read the `user button` and write the `user led`.
+* ISR_GPIO_HAL: GPIO_IN: The ISR_GPIO_HAL should write the value of GPIO_IN to GPIO_OUT using a standard interrupt.
+* ISR_GPIO_DIRECT: GPIO_DIRECT_IN: The ISR_GPIO_DIRECT should write the value of GPIO_DIRECT_IN to GPIO_DIRECT_OUT.
+
+  * The Direct Interrupt Service Routine (ISR) bypasses the zephyr HAL.
 
 
 ### ISR pin mapping
 
-* isrButton:
-  * GPIO_IN: PC13 (user button, alias `sw0`)
-  * GPIO_OUT: PB0 (user LED, alias `led0`)
-* isrGpio:
-  * GPIO_IN: PG9 (CN10/D0 pin 16)
-  * GPIO_OUT: PG14 (CN10/D1 pin 14)
-* isrGpioDirect:
-  * GPIO_DIRECT_IN: PF15 (CN10/D2 pin 12)
-  * GPIO_DIRECT_OUT: PE13 (CN10/D3 pin 10)
+* ISR_BUTTON_LED_DIRECT:
+  * gpio-in: PC13 (user button, alias `sw0`)
+  * gpio-out: PB0 (user LED, alias `led0`)
+* ISR_GPIO_HAL:
+  * gpio-in: PG9 (CN10/D0 pin 16)
+  * gpio-out: PG14 (CN10/D1 pin 14)
+* ISR_GPIO_DIRECT:
+  * gpio-in: PF15 (CN10/D2 pin 12)
+  * gpio-out: PE13 (CN10/D3 pin 10)
 
-Note: isrGpio pins (PG9/PG14) are independent from ADC/DAC pins. ADC/DAC stays on the analog-capable pins documented above.
+Note: ISR_GPIO_HAL pins (PG9/PG14) are independent from ADC/DAC pins. ADC/DAC stays on the analog-capable pins documented above.
 
 
 ## List of PINs on the NUCLEO-F722ZE

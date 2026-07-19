@@ -1,5 +1,7 @@
 # experiment_zephyr_isr_on_M7
 
+Description of the Nucle Use Case: [zephyr_app/README.md](zephyr_app/README.md)
+
 * NUCLEO-F722ZE
 
   * STM32F722ZE MCU

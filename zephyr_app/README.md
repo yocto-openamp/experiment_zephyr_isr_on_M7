@@ -27,7 +27,7 @@ $ west sdk install
 From the repository root:
 
 ```sh
-west build -b nucleo_f722ze zephyr_app
+west build -d build/nucleo_f722ze -b nucleo_f722ze zephyr_app
 ```
 
 ## Flash
@@ -35,8 +35,18 @@ west build -b nucleo_f722ze zephyr_app
 * Connect USB to CN1 of NUCLEO-F722ZE
 
 ```sh
-west flash
+west flash -d build/nucleo_f722ze
 ```
+
+## Testing
+
+* `tio /dev/ttyACM0` to see log messages
+* ISR_GPIO_BUTTON_LED_HAL: Press the blue button -> green LD1
+* ISR_GPIO_DIRECT: GPIO_DIRECT_IN -> GPIO_DIRECT_OUT
+
+  ```python
+  uvx mpremote a1 run response_time_analyser.py
+  ```
 
 ## Current Status
 
