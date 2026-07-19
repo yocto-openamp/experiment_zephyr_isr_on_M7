@@ -1,0 +1,63 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	zephyr,user {
+		gpio-direct-in-gpios = <&gpio3 9 GPIO_ACTIVE_HIGH>;
+		gpio-direct-out-gpios = <&gpio3 13 GPIO_ACTIVE_HIGH>;
+
+		/* nucleo_f722ze.dts: sw0 = &user_button */
+		gpio-direct-button-in-gpios = <&gpio3 14 GPIO_ACTIVE_HIGH>;
+		/* led1 = &blue_led */
+		gpio-direct-led-out-gpios = <&gpio3 13 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/ {
+	leds {
+		compatible = "gpio-leds";
+
+		user_led: user_led {
+			label = "User LED";
+			gpios = <&gpio3 5 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		user_button: user_button {
+			label = "User Button";
+			gpios = <&gpio3 12 GPIO_ACTIVE_LOW>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+	aliases {
+		led0 = &user_led;
+		sw0 = &user_button;
+	};
+};
+
+&uart4 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+/* Uncomment if UART4 pins are not already configured by the board DTS.
+
+&pinctrl {
+	uart4_default: uart4_default {
+		group1 {
+			fsl,pins = <
+				// MX8MP_IOMUXC_<PAD>__UART4_DCE_RX 0x140
+				// MX8MP_IOMUXC_<PAD>__UART4_DCE_TX 0x140
+			>;
+		};
+	};
+};
+
+&uart4 {
+	pinctrl-0 = <&uart4_default>;
+	pinctrl-names = "default";
+};
+*/

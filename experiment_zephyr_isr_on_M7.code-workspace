@@ -4,5 +4,14 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"python.analysis.enabled": false,
+		"python.analysis.indexing": false,
+		"python.analysis.exclude": [
+			"**"
+		],
+		"workbench.colorCustomizations": {
+			"titleBar.border": "#ff00ff",
+		}
+	}
 }
