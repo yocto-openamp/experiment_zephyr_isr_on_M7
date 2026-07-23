@@ -8,6 +8,11 @@
 #endif // CONFIG_ADC
 #include <zephyr/logging/log.h>
 #include <zephyr/irq.h>
+#include <zephyr/init.h>
+#include <zephyr/sys/printk.h>
+#if defined(CONFIG_RPMSG_SERVICE)
+#include <zephyr/ipc/rpmsg_service.h>
+#endif
 #include <math.h>
 
 #ifndef M_PI
@@ -82,6 +87,92 @@ static const struct device *const adc3_dev = DEVICE_DT_GET(ADC3_NODE);
 #if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_hal_in_gpios)
 static struct gpio_callback gpio_callback_isr_gpioHAL;
 #endif // gpio_hal_in_gpios
+
+#if defined(CONFIG_RPMSG_SERVICE)
+#ifndef CONFIG_RPMSG_SERVICE_DEMO_CYCLES
+#define CONFIG_RPMSG_SERVICE_DEMO_CYCLES 100
+#endif
+
+K_THREAD_STACK_DEFINE(rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE);
+static struct k_thread rpmsg_thread_data;
+
+static volatile unsigned int rpmsg_received_data;
+static K_SEM_DEFINE(rpmsg_data_rx_sem, 0, 1);
+static int rpmsg_ep_id;
+
+static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
+			     uint32_t src, void *priv)
+{
+	ARG_UNUSED(ept);
+	ARG_UNUSED(len);
+	ARG_UNUSED(src);
+	ARG_UNUSED(priv);
+
+	rpmsg_received_data = *((unsigned int *)data);
+	k_sem_give(&rpmsg_data_rx_sem);
+
+	return RPMSG_SUCCESS;
+}
+
+static unsigned int rpmsg_receive_message(void)
+{
+	k_sem_take(&rpmsg_data_rx_sem, K_FOREVER);
+	return rpmsg_received_data;
+}
+
+static int rpmsg_send_message(unsigned int message)
+{
+	return rpmsg_service_send(rpmsg_ep_id, &message, sizeof(message));
+}
+
+static void rpmsg_app_task(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	int status;
+	unsigned int message = 0U;
+
+	printk("\r\nRPMsg Service [master] demo started\r\n");
+
+	while (!rpmsg_service_endpoint_is_bound(rpmsg_ep_id)) {
+		k_sleep(K_MSEC(1));
+	}
+
+	while (message < CONFIG_RPMSG_SERVICE_DEMO_CYCLES) {
+		status = rpmsg_send_message(message);
+		if (status < 0) {
+			printk("send_message(%u) failed with status %d\n", message, status);
+			break;
+		}
+
+		message = rpmsg_receive_message();
+		printk("Master core received a message: %u\n", message);
+
+		message++;
+	}
+
+	printk("RPMsg Service demo ended.\n");
+}
+
+/* Register endpoint before RPMsg Service initialization. */
+static int rpmsg_register_endpoint(void)
+{
+	int status;
+
+	status = rpmsg_service_register_endpoint("demo", rpmsg_endpoint_cb);
+	if (status < 0) {
+		printk("rpmsg_create_ept failed %d\n", status);
+		return status;
+	}
+
+	rpmsg_ep_id = status;
+	return 0;
+}
+
+SYS_INIT(rpmsg_register_endpoint, POST_KERNEL, CONFIG_RPMSG_SERVICE_EP_REG_PRIORITY);
+#endif // CONFIG_RPMSG_SERVICE
 
 /*
 ISR_GPIO_DIRECT
@@ -363,9 +454,21 @@ int main(void)
 	}
 #endif // gpio_hal_in_gpios
 
+#if defined(CONFIG_RPMSG_SERVICE)
+	printk("Starting RPMsg application thread!\n");
+	k_thread_create(&rpmsg_thread_data, rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE,
+			rpmsg_app_task, NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
+#if defined(CONFIG_SOC_AN521) || defined(CONFIG_SOC_MUSCA_B1)
+	wakeup_cpu1();
+	k_msleep(500);
+#endif
+#endif // CONFIG_RPMSG_SERVICE
+
 #if defined(CONFIG_ADC)
 	init_adc_dac();
 
 	endless_loop_adc_dac();
 #endif // CONFIG_ADC
+
+	return 0;
 }
