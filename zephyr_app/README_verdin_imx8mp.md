@@ -40,3 +40,12 @@ ssh root@verdin-imx8mp-08910183.local 'echo stop > /sys/class/remoteproc/remotep
 ssh root@verdin-imx8mp-08910183.local 'echo zephyr.elf > /sys/class/remoteproc/remoteproc0/firmware'
 ssh root@verdin-imx8mp-08910183.local 'echo start > /sys/class/remoteproc/remoteproc0/state'
 ```
+
+modprobe rpmsg_char
+modprobe rpmsg_ctrl
+
+[  239.923399] remoteproc remoteproc0: powering up imx-rproc
+[  239.938662] remoteproc remoteproc0: Booting fw image zephyr.elf, size 1219436
+[  239.938711] remoteproc remoteproc0: No resource table in elf
+[  240.456137] remoteproc remoteproc0: remote processor imx-rproc is now up
+

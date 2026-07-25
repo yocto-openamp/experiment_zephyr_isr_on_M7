@@ -1,5 +1,13 @@
 # Zephyr App (NUCLEO-F722ZE)
 
+## prepare
+
+Add to ~/.profile
+
+```sh
+export ZEPHYR_SDK_INSTALL_DIR=~/zephyr-sdk-1.0.1/
+```
+
 ## Install west using uv
 
 To install `west`, use the following command:
@@ -8,8 +16,11 @@ To install `west`, use the following command:
 uv venv --python 3.13.13
 . .venv/bin/activate
 uv pip install west
+rm -rf .west build bootloader modules zephyr
 west init .
-west update
+export WEST_NUCLEO="hal_stm32 cmsis_6 picolibc"
+export WEST_IMX="hal_nxp open-amp libmetal"
+west update zephyr $WEST_NUCLEO $WEST_IMX
 
 uv pip install -r zephyr/scripts/requirements-base.txt
 ```
@@ -19,7 +30,7 @@ uv pip install -r zephyr/scripts/requirements-base.txt
 ```sh
 $ west sdk list
 FATAL ERROR: No Zephyr SDK installed.
-$ west sdk install
+$ west sdk install --gnu-toolchains arm-zephyr-eabi
 ```
 
 ## Build
