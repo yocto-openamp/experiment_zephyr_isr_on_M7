@@ -41,11 +41,18 @@ ssh root@verdin-imx8mp-08910183.local 'echo zephyr.elf > /sys/class/remoteproc/r
 ssh root@verdin-imx8mp-08910183.local 'echo start > /sys/class/remoteproc/remoteproc0/state'
 ```
 
-modprobe rpmsg_char
 modprobe rpmsg_ctrl
+modprobe rpmsg_char
 
-[  239.923399] remoteproc remoteproc0: powering up imx-rproc
-[  239.938662] remoteproc remoteproc0: Booting fw image zephyr.elf, size 1219436
-[  239.938711] remoteproc remoteproc0: No resource table in elf
-[  240.456137] remoteproc remoteproc0: remote processor imx-rproc is now up
+# [  239.923399] remoteproc remoteproc0: powering up imx-rproc
+# [  239.938662] remoteproc remoteproc0: Booting fw image zephyr.elf, size 1219436
+# [  239.938711] remoteproc remoteproc0: No resource table in elf
+# [  240.456137] remoteproc remoteproc0: remote processor imx-rproc is now up
 
+[ 2341.643885] remoteproc remoteproc0: powering up imx-rproc
+[ 2341.647455] remoteproc remoteproc0: Booting fw image zephyr.elf, size 1195084
+[ 2342.166640] rproc-virtio rproc-virtio.2.auto: assigned reserved memory node vdevbuffer@55400000
+[ 2342.276561] imx-rproc imx8mp-cm7: imx_rproc_kick: failed (0, err:-62)
+[ 2342.283028] virtio_rpmsg_bus virtio0: rpmsg host is online
+[ 2342.283118] rproc-virtio rproc-virtio.2.auto: registered virtio0 (type 7)
+[ 2342.283128] remoteproc remoteproc0: remote processor imx-rproc is now up
