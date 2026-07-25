@@ -1,0 +1,11 @@
+.west/
+bootloader/
+build_m7_check/
+build_m7_check2/
+build_m7_check3/
+build_m7_check4/
+build_m7_check5/
+build/
+modules/
+tools/
+zephyr/

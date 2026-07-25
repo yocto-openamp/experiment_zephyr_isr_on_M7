@@ -1,0 +1,25 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	zephyr,user {
+		gpio-in-gpios = <&gpiog 9 GPIO_ACTIVE_HIGH>;
+		gpio-out-gpios = <&gpiog 14 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&adc2 {
+	st,adc-clock-source = "SYNC";
+	st,adc-prescaler = <2>;
+	status = "okay";
+};
+
+&adc3 {
+	st,adc-clock-source = "SYNC";
+	st,adc-prescaler = <2>;
+	status = "okay";
+};
+
+&dac1 {
+	status = "okay";
+	/* DAC2 (channel 2 of dac1) is also enabled */
+};
