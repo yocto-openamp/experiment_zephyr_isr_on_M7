@@ -140,7 +140,9 @@ static void rpmsg_app_task(void *arg1, void *arg2, void *arg3)
 
 	int status;
 	unsigned int message = 0U;
+#if defined(CONFIG_RPMSG_SERVICE_MODE_MASTER)
 	uint32_t wait_loops = 0U;
+#endif
 
 	printk("\r\nRPMsg Service task started: ep_id=%d\r\n", rpmsg_ep_id);
 
