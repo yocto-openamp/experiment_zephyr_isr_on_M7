@@ -56,3 +56,7 @@ modprobe rpmsg_char
 [ 2342.283028] virtio_rpmsg_bus virtio0: rpmsg host is online
 [ 2342.283118] rproc-virtio rproc-virtio.2.auto: registered virtio0 (type 7)
 [ 2342.283128] remoteproc remoteproc0: remote processor imx-rproc is now up
+
+
+ls -l /dev/rpmsg_ctrl0 
+crw------- 1 root root 511, 0 Jul 25 21:14 /dev/rpmsg_ctrl0
