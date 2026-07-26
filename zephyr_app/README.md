@@ -18,7 +18,7 @@ uv venv --python 3.13.13
 uv pip install west
 rm -rf .west build bootloader modules zephyr
 west init .
-export WEST_NUCLEO="hal_stm32 cmsis_6 picolibc"
+export WEST_NUCLEO="hal_stm32 cmsis_6"
 export WEST_IMX="hal_nxp open-amp libmetal"
 west update zephyr $WEST_NUCLEO $WEST_IMX
 
