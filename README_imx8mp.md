@@ -17,6 +17,11 @@ cp /home/torizon/.ssh/authorized_keys .
 
 ## Build
 
+./run_0_install.sh: Installs python, west and zephyr
+./run_1_build_imx8mp.sh: Compiles the application
+./run_2_start_imx8mp: Starts the kernel modules and the application
+
+
 From the repository root:
 
 ```sh

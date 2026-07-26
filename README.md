@@ -2,8 +2,8 @@
 
 Description of the Nucle Use Case: [zephyr_app/README.md](zephyr_app/README.md)
 
-* [README for nucleo](zephyr_app/README.md)
-* [README for verdin](zephyr_app/README_verdin_imx8mp.md)
+* [README for nucleo](README_nucleo_F722ZE.md)
+* [README for verdin](README_imx8mp.md)
 
 ## NUCLEO-F722ZE
 
