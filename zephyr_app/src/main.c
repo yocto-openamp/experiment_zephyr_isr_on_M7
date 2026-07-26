@@ -99,16 +99,23 @@ static struct k_thread rpmsg_thread_data;
 static volatile unsigned int rpmsg_received_data;
 static K_SEM_DEFINE(rpmsg_data_rx_sem, 0, 1);
 static int rpmsg_ep_id;
+static volatile uint32_t rpmsg_rx_count;
 
 static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 			     uint32_t src, void *priv)
 {
 	ARG_UNUSED(ept);
-	ARG_UNUSED(len);
-	ARG_UNUSED(src);
 	ARG_UNUSED(priv);
 
+	if (len < sizeof(unsigned int)) {
+		printk("rpmsg_endpoint_cb: short message len=%u src=0x%x\n", (unsigned int)len, src);
+		return RPMSG_SUCCESS;
+	}
+
 	rpmsg_received_data = *((unsigned int *)data);
+	rpmsg_rx_count++;
+	printk("rpmsg_endpoint_cb: rx_count=%u src=0x%x value=%u len=%u\n",
+		   rpmsg_rx_count, src, rpmsg_received_data, (unsigned int)len);
 	k_sem_give(&rpmsg_data_rx_sem);
 
 	return RPMSG_SUCCESS;
@@ -133,12 +140,25 @@ static void rpmsg_app_task(void *arg1, void *arg2, void *arg3)
 
 	int status;
 	unsigned int message = 0U;
+	uint32_t wait_loops = 0U;
 
-	printk("\r\nRPMsg Service [master] demo started\r\n");
+	printk("\r\nRPMsg Service task started: ep_id=%d\r\n", rpmsg_ep_id);
 
+#if defined(CONFIG_RPMSG_SERVICE_MODE_MASTER)
 	while (!rpmsg_service_endpoint_is_bound(rpmsg_ep_id)) {
+		if ((wait_loops % 1000U) == 0U) {
+			printk("RPMsg waiting for bind: loops=%u uptime_ms=%u\n",
+			       wait_loops, k_uptime_get_32());
+		}
+		wait_loops++;
 		k_sleep(K_MSEC(1));
 	}
+
+	printk("RPMsg endpoint bound after %u loops (uptime_ms=%u)\n",
+	       wait_loops, k_uptime_get_32());
+#else
+	printk("RPMsg remote mode active: endpoint ready without master-bound wait\n");
+#endif
 
 	while (message < CONFIG_RPMSG_SERVICE_DEMO_CYCLES) {
 		status = rpmsg_send_message(message);
@@ -163,11 +183,12 @@ static int rpmsg_register_endpoint(void)
 
 	status = rpmsg_service_register_endpoint("demo", rpmsg_endpoint_cb);
 	if (status < 0) {
-		printk("rpmsg_create_ept failed %d\n", status);
+		printk("rpmsg_service_register_endpoint(demo) failed %d\n", status);
 		return status;
 	}
 
 	rpmsg_ep_id = status;
+	printk("rpmsg_service_register_endpoint(demo) ok: ep_id=%d\n", rpmsg_ep_id);
 	return 0;
 }
 
@@ -441,21 +462,11 @@ static void endless_loop_adc_dac(void)
 
 int main(void)
 {
-	int ret = init_isr_gpioDirect();
-	if (ret != 0) {
-		return ret;
-	}
-
-
-#if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_hal_in_gpios)
-	ret = init_isr_gpioHAL();
-	if (ret != 0) {
-		return ret;
-	}
-#endif // gpio_hal_in_gpios
+    LOG_WRN("hello 3");
 
 #if defined(CONFIG_RPMSG_SERVICE)
-	printk("Starting RPMsg application thread!\n");
+	printk("Starting RPMsg application thread (ep_id=%d, uptime_ms=%u)\n",
+	       rpmsg_ep_id, k_uptime_get_32());
 	k_thread_create(&rpmsg_thread_data, rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE,
 			rpmsg_app_task, NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 #if defined(CONFIG_SOC_AN521) || defined(CONFIG_SOC_MUSCA_B1)
@@ -469,6 +480,11 @@ int main(void)
 
 	endless_loop_adc_dac();
 #endif // CONFIG_ADC
+
+	/* Keep the M7 firmware alive so MU/mailbox kicks and RPMsg traffic
+	 * can continue to be serviced by the platform and ISR handlers.
+	 */
+	k_sleep(K_FOREVER);
 
 	return 0;
 }
