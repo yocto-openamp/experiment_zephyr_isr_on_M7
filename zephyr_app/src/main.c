@@ -1,4 +1,4 @@
-# https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/subsys/ipc/openamp_rsc_table/src/main_remote.c
+// https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/subsys/ipc/openamp_rsc_table/src/main_remote.c
 
 /*
  * Copyright (c) 2020, STMICROELECTRONICS
