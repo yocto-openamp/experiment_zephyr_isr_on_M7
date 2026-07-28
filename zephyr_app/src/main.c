@@ -1,524 +1,386 @@
+# https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/subsys/ipc/openamp_rsc_table/src/main_remote.c
+
+/*
+ * Copyright (c) 2020, STMICROELECTRONICS
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/devicetree.h>
-#include <zephyr/drivers/gpio.h>
-#if defined(CONFIG_ADC)
-#include <zephyr/drivers/dac.h>
-#include <zephyr/drivers/adc.h>
-#endif // CONFIG_ADC
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <zephyr/drivers/ipm.h>
+
+#include <openamp/open_amp.h>
+#include <metal/sys.h>
+#include <metal/io.h>
+#include <resource_table.h>
+#include <addr_translation.h>
+
+#ifdef CONFIG_SHELL_BACKEND_RPMSG
+#include <zephyr/shell/shell_rpmsg.h>
+#endif
+
 #include <zephyr/logging/log.h>
-#include <zephyr/irq.h>
-#include <zephyr/init.h>
-#include <zephyr/sys/printk.h>
-#if defined(CONFIG_RPMSG_SERVICE)
-#include <zephyr/ipc/rpmsg_service.h>
-#endif
-#include <math.h>
+LOG_MODULE_REGISTER(openamp_rsc_table);
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
+#define SHM_DEVICE_NAME	"shm"
+
+#if !DT_HAS_CHOSEN(zephyr_ipc_shm)
+#error "Sample requires definition of shared memory for rpmsg"
 #endif
 
-LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
+#if CONFIG_IPM_MAX_DATA_SIZE > 0
 
-#define ZEPHYR_USER_NODE DT_PATH(zephyr_user)
-
-#if !DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_direct_button_in_gpios)
-#error "Missing gpio-direct-button-in-gpios in zephyr,user devicetree node"
-#endif
-
-#if !DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_direct_led_out_gpios)
-#error "Missing gpio-direct-led-out-gpios in zephyr,user devicetree node"
-#endif
-
-#if !DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_direct_in_gpios)
-#error "Missing gpio-direct-in-gpios in zephyr,user devicetree node"
-#endif
-
-#if !DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_direct_out_gpios)
-#error "Missing gpio-direct-out-gpios in zephyr,user devicetree node"
-#endif
-
-#define SW0_NODE DT_ALIAS(sw0)
-
-#if !DT_NODE_HAS_STATUS(SW0_NODE, okay)
-#error "Missing sw0 alias in board devicetree"
-#endif
-
-#if defined(CONFIG_ADC)
-#define DAC1_NODE DT_NODELABEL(dac1)
-#define ADC1_NODE DT_NODELABEL(adc1)
-#define ADC2_NODE DT_NODELABEL(adc2)
-#define ADC3_NODE DT_NODELABEL(adc3)
-#endif // CONFIG_ADC
-
-#define EXTI_GPIO_DIRECT_BUTTON_IN_LINE BIT(gpio_direct_button_in.pin)
-#define EXTI_GPIO_DIRECT_IN_LINE BIT(gpio_direct_in.pin)
-#define EXTI_DIRECT_LINES (EXTI_GPIO_DIRECT_BUTTON_IN_LINE | EXTI_GPIO_DIRECT_IN_LINE)
-
-#define GPIO_DIRECT_BUTTON_IN ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(ZEPHYR_USER_NODE, gpio_direct_button_in_gpios)))
-#define GPIO_DIRECT_LED_OUT ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(ZEPHYR_USER_NODE, gpio_direct_led_out_gpios)))
-#define GPIO_DIRECT_IN ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(ZEPHYR_USER_NODE, gpio_direct_in_gpios)))
-#define GPIO_DIRECT_OUT ((GPIO_TypeDef *)DT_REG_ADDR(DT_GPIO_CTLR(ZEPHYR_USER_NODE, gpio_direct_out_gpios)))
-
-#define GPIO_DIRECT_IRQ_PRIO 0
-#if defined(CONFIG_ZERO_LATENCY_IRQS)
-#define GPIO_DIRECT_IRQ_FLAGS IRQ_ZERO_LATENCY
+#define	IPM_SEND(dev, w, id, d, s) ipm_send(dev, w, id, d, s)
 #else
-#define GPIO_DIRECT_IRQ_FLAGS 0
+#define IPM_SEND(dev, w, id, d, s) ipm_send(dev, w, id, NULL, 0)
 #endif
 
-#if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_hal_in_gpios)
-static const struct gpio_dt_spec gpio_hal_in = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_hal_in_gpios);
-static const struct gpio_dt_spec gpio_hal_out = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_hal_out_gpios);
-#endif // gpio_hal_in_gpios
-static const struct gpio_dt_spec gpio_direct_button_in = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_direct_button_in_gpios);
-static const struct gpio_dt_spec gpio_direct_led_out = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_direct_led_out_gpios);
-static const struct gpio_dt_spec gpio_direct_in = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_direct_in_gpios);
-static const struct gpio_dt_spec gpio_direct_out = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, gpio_direct_out_gpios);
+/* Constants derived from device tree */
+#define SHM_NODE		DT_CHOSEN(zephyr_ipc_shm)
+#define SHM_START_ADDR	DT_REG_ADDR(SHM_NODE)
+#define SHM_SIZE		DT_REG_SIZE(SHM_NODE)
 
-#if defined(CONFIG_ADC)
-static const struct device *const dac1_dev = DEVICE_DT_GET(DAC1_NODE);
-static const struct device *const adc1_dev = DEVICE_DT_GET(ADC1_NODE);
-static const struct device *const adc2_dev = DEVICE_DT_GET(ADC2_NODE);
-static const struct device *const adc3_dev = DEVICE_DT_GET(ADC3_NODE);
-#endif // CONFIG_ADC
+#define APP_TASK_STACK_SIZE (1024)
 
-#if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_hal_in_gpios)
-static struct gpio_callback gpio_callback_isr_gpioHAL;
-#endif // gpio_hal_in_gpios
+/* Add 1024 extra bytes for the TTY task stack for the "tx_buff" buffer. */
+#define APP_TTY_TASK_STACK_SIZE (1536)
 
-#if defined(CONFIG_RPMSG_SERVICE)
-#ifndef CONFIG_RPMSG_SERVICE_DEMO_CYCLES
-#define CONFIG_RPMSG_SERVICE_DEMO_CYCLES 100
-#endif
+K_THREAD_STACK_DEFINE(thread_mng_stack, APP_TASK_STACK_SIZE);
+K_THREAD_STACK_DEFINE(thread_rp__client_stack, APP_TASK_STACK_SIZE);
+K_THREAD_STACK_DEFINE(thread_tty_stack, APP_TTY_TASK_STACK_SIZE);
 
-K_THREAD_STACK_DEFINE(rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE);
-static struct k_thread rpmsg_thread_data;
+static struct k_thread thread_mng_data;
+static struct k_thread thread_rp__client_data;
+static struct k_thread thread_tty_data;
 
-static volatile unsigned int rpmsg_received_data;
-static K_SEM_DEFINE(rpmsg_data_rx_sem, 0, 1);
-static int rpmsg_ep_id;
-static volatile uint32_t rpmsg_rx_count;
-static const char* rpmsg_endpoint_name = "demo";
-static const int version = 6;
+static const struct device *const ipm_handle =
+	DEVICE_DT_GET(DT_CHOSEN(zephyr_ipc));
 
-static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
-			     uint32_t src, void *priv)
+static metal_phys_addr_t shm_physmap = SHM_START_ADDR;
+static metal_phys_addr_t rsc_tab_physmap;
+
+static struct metal_io_region shm_io_data; /* shared memory */
+static struct metal_io_region rsc_io_data; /* rsc_table memory */
+
+struct rpmsg_rcv_msg {
+	void *data;
+	size_t len;
+};
+
+static struct metal_io_region *shm_io = &shm_io_data;
+
+static struct metal_io_region *rsc_io = &rsc_io_data;
+static struct rpmsg_virtio_device rvdev;
+
+static void *rsc_table;
+static struct rpmsg_device *rpdev;
+
+static char rx_sc_msg[20];  /* should receive "Hello world!" */
+static struct rpmsg_endpoint sc_ept;
+static struct rpmsg_rcv_msg sc_msg = {.data = rx_sc_msg};
+
+static struct rpmsg_endpoint tty_ept;
+static struct rpmsg_rcv_msg tty_msg;
+
+static K_SEM_DEFINE(data_sem, 0, 1);
+static K_SEM_DEFINE(data_sc_sem, 0, 1);
+static K_SEM_DEFINE(data_tty_sem, 0, 1);
+
+static void platform_ipm_callback(const struct device *dev, void *context,
+				  uint32_t id, volatile void *data)
 {
-	ARG_UNUSED(ept);
-	ARG_UNUSED(priv);
+	LOG_DBG("%s: msg received from mb %d", __func__, id);
+	k_sem_give(&data_sem);
+}
 
-	if (len < sizeof(unsigned int)) {
-		printk("rpmsg_endpoint_cb: short message len=%u src=0x%x\n", (unsigned int)len, src);
-		return RPMSG_SUCCESS;
-	}
-
-	rpmsg_received_data = *((unsigned int *)data);
-	rpmsg_rx_count++;
-	printk("rpmsg_endpoint_cb: rx_count=%u src=0x%x value=%u len=%u\n",
-		   rpmsg_rx_count, src, rpmsg_received_data, (unsigned int)len);
-	k_sem_give(&rpmsg_data_rx_sem);
+static int rpmsg_recv_cs_callback(struct rpmsg_endpoint *ept, void *data,
+				  size_t len, uint32_t src, void *priv)
+{
+	memcpy(sc_msg.data, data, len);
+	sc_msg.len = len;
+	k_sem_give(&data_sc_sem);
 
 	return RPMSG_SUCCESS;
 }
 
-static unsigned int rpmsg_receive_message(void)
+static int rpmsg_recv_tty_callback(struct rpmsg_endpoint *ept, void *data,
+				   size_t len, uint32_t src, void *priv)
 {
-	k_sem_take(&rpmsg_data_rx_sem, K_FOREVER);
-	return rpmsg_received_data;
+	struct rpmsg_rcv_msg *msg = priv;
+
+	rpmsg_hold_rx_buffer(ept, data);
+	msg->data = data;
+	msg->len = len;
+	k_sem_give(&data_tty_sem);
+
+	return RPMSG_SUCCESS;
 }
 
-static int rpmsg_send_message(unsigned int message)
+static void receive_message(unsigned char **msg, unsigned int *len)
 {
-	return rpmsg_service_send(rpmsg_ep_id, &message, sizeof(message));
+	int status = k_sem_take(&data_sem, K_FOREVER);
+
+	if (status == 0) {
+		rproc_virtio_notified(rvdev.vdev, VRING1_ID);
+	}
 }
 
-static void rpmsg_app_task(void *arg1, void *arg2, void *arg3)
+static void new_service_cb(struct rpmsg_device *rdev, const char *name,
+			   uint32_t src)
+{
+	LOG_ERR("%s: unexpected ns service receive for name %s",
+		__func__, name);
+}
+
+int mailbox_notify(void *priv, uint32_t id)
+{
+	ARG_UNUSED(priv);
+
+	LOG_DBG("%s: msg received", __func__);
+	IPM_SEND(ipm_handle, 0, id, &id, 4);
+
+	return 0;
+}
+
+int platform_init(void)
+{
+	int rsc_size;
+	struct metal_init_params metal_params = METAL_INIT_DEFAULTS;
+	int status;
+
+	status = metal_init(&metal_params);
+	if (status) {
+		LOG_ERR("metal_init: failed: %d", status);
+		return -1;
+	}
+
+	/* declare shared memory region */
+	metal_io_init(shm_io, (void *)SHM_START_ADDR, &shm_physmap,
+		      SHM_SIZE, -1, 0, addr_translation_get_ops(shm_physmap));
+
+	/* declare resource table region */
+	rsc_table_get(&rsc_table, &rsc_size);
+	rsc_tab_physmap = (uintptr_t)rsc_table;
+
+	metal_io_init(rsc_io, rsc_table,
+		      &rsc_tab_physmap, rsc_size, -1, 0, NULL);
+
+	/* setup IPM */
+	if (!device_is_ready(ipm_handle)) {
+		LOG_ERR("IPM device is not ready");
+		return -1;
+	}
+
+	ipm_register_callback(ipm_handle, platform_ipm_callback, NULL);
+
+	status = ipm_set_enabled(ipm_handle, 1);
+	if (status) {
+		LOG_ERR("ipm_set_enabled failed");
+		return -1;
+	}
+
+	return 0;
+}
+
+static void cleanup_system(void)
+{
+	ipm_set_enabled(ipm_handle, 0);
+	rpmsg_deinit_vdev(&rvdev);
+	metal_finish();
+}
+
+struct  rpmsg_device *
+platform_create_rpmsg_vdev(unsigned int vdev_index,
+			   unsigned int role,
+			   void (*rst_cb)(struct virtio_device *vdev),
+			   rpmsg_ns_bind_cb ns_cb)
+{
+	struct fw_rsc_vdev_vring *vring_rsc;
+	struct virtio_device *vdev;
+	int ret;
+
+	vdev = rproc_virtio_create_vdev(VIRTIO_DEV_DEVICE, VDEV_ID,
+					rsc_table_to_vdev(rsc_table),
+					rsc_io, NULL, mailbox_notify, NULL);
+
+	if (!vdev) {
+		LOG_ERR("failed to create vdev");
+		return NULL;
+	}
+
+	/* wait master rpmsg init completion */
+	rproc_virtio_wait_remote_ready(vdev);
+
+	vring_rsc = rsc_table_get_vring0(rsc_table);
+	ret = rproc_virtio_init_vring(vdev, 0, vring_rsc->notifyid,
+				      (void *)vring_rsc->da, rsc_io,
+				      vring_rsc->num, vring_rsc->align);
+	if (ret) {
+		LOG_ERR("failed to init vring 0");
+		goto failed;
+	}
+
+	vring_rsc = rsc_table_get_vring1(rsc_table);
+	ret = rproc_virtio_init_vring(vdev, 1, vring_rsc->notifyid,
+				      (void *)vring_rsc->da, rsc_io,
+				      vring_rsc->num, vring_rsc->align);
+	if (ret) {
+		LOG_ERR("failed to init vring 1");
+		goto failed;
+	}
+
+	ret = rpmsg_init_vdev(&rvdev, vdev, ns_cb, shm_io, NULL);
+	if (ret) {
+		LOG_ERR("failed rpmsg_init_vdev");
+		goto failed;
+	}
+
+	return rpmsg_virtio_get_rpmsg_device(&rvdev);
+
+failed:
+	rproc_virtio_remove_vdev(vdev);
+
+	return NULL;
+}
+
+void app_rpmsg_client_sample(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 
-	int status;
-	unsigned int message = 0U;
-#if defined(CONFIG_RPMSG_SERVICE_MODE_MASTER)
-	uint32_t wait_loops = 0U;
+	unsigned int msg_cnt = 0;
+	int ret = 0;
+
+	k_sem_take(&data_sc_sem,  K_FOREVER);
+
+	LOG_INF("OpenAMP[remote] Linux sample client responder started");
+
+	ret = rpmsg_create_ept(&sc_ept, rpdev, "rpmsg-client-sample",
+			       RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
+			       rpmsg_recv_cs_callback, NULL);
+	if (ret) {
+		LOG_ERR("[Linux sample client] Could not create endpoint: %d", ret);
+		goto task_end;
+	}
+
+	while (msg_cnt < 100) {
+		k_sem_take(&data_sc_sem,  K_FOREVER);
+		msg_cnt++;
+		LOG_INF("[Linux sample client] incoming msg %d: %.*s", msg_cnt, sc_msg.len,
+			(char *)sc_msg.data);
+		rpmsg_send(&sc_ept, sc_msg.data, sc_msg.len);
+	}
+	rpmsg_destroy_ept(&sc_ept);
+
+task_end:
+	LOG_INF("OpenAMP Linux sample client responder ended");
+}
+
+void app_rpmsg_tty(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	unsigned char tx_buff[512];
+	int ret = 0;
+
+	k_sem_take(&data_tty_sem,  K_FOREVER);
+
+	LOG_INF("OpenAMP[remote] Linux TTY responder started");
+
+	tty_ept.priv = &tty_msg;
+	ret = rpmsg_create_ept(&tty_ept, rpdev, "rpmsg-tty",
+			       RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
+			       rpmsg_recv_tty_callback, NULL);
+	if (ret) {
+		LOG_ERR("[Linux TTY] Could not create endpoint: %d", ret);
+		goto task_end;
+	}
+
+	while (tty_ept.addr !=  RPMSG_ADDR_ANY) {
+		k_sem_take(&data_tty_sem,  K_FOREVER);
+		if (tty_msg.len) {
+			LOG_INF("[Linux TTY] incoming msg: %.*s",
+				(int)tty_msg.len, (char *)tty_msg.data);
+			snprintf(tx_buff, 13, "TTY 0x%04x: ", tty_ept.addr);
+			memcpy(&tx_buff[12], tty_msg.data, tty_msg.len);
+			rpmsg_send(&tty_ept, tx_buff, tty_msg.len + 12);
+			rpmsg_release_rx_buffer(&tty_ept, tty_msg.data);
+		}
+		tty_msg.len = 0;
+		tty_msg.data = NULL;
+	}
+	rpmsg_destroy_ept(&tty_ept);
+
+task_end:
+	LOG_INF("OpenAMP Linux TTY responder ended");
+}
+
+void rpmsg_mng_task(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	unsigned char *msg;
+	unsigned int len;
+	int ret = 0;
+
+	LOG_INF("OpenAMP[remote] Linux responder demo started");
+
+	/* Initialize platform */
+	ret = platform_init();
+	if (ret) {
+		LOG_ERR("Failed to initialize platform");
+		ret = -1;
+		goto task_end;
+	}
+
+	rpdev = platform_create_rpmsg_vdev(0, VIRTIO_DEV_DEVICE, NULL,
+					   new_service_cb);
+	if (!rpdev) {
+		LOG_ERR("Failed to create rpmsg virtio device");
+		ret = -1;
+		goto task_end;
+	}
+
+#ifdef CONFIG_SHELL_BACKEND_RPMSG
+	(void)shell_backend_rpmsg_init_transport(rpdev);
 #endif
 
-	printk("\r\nRPMsg Service task started: ep_id=%d\r\n", rpmsg_ep_id);
-
-#if defined(CONFIG_RPMSG_SERVICE_MODE_MASTER)
-	while (!rpmsg_service_endpoint_is_bound(rpmsg_ep_id)) {
-		if ((wait_loops % 1000U) == 0U) {
-			printk("RPMsg waiting for bind: loops=%u uptime_ms=%u\n",
-			       wait_loops, k_uptime_get_32());
-		}
-		wait_loops++;
-		k_sleep(K_MSEC(1));
-	}
-
-	printk("RPMsg endpoint bound after %u loops (uptime_ms=%u)\n",
-	       wait_loops, k_uptime_get_32());
-#else
-	printk("RPMsg remote mode active: endpoint ready without master-bound wait\n");
-#endif
-
-	while (message < CONFIG_RPMSG_SERVICE_DEMO_CYCLES) {
-		status = rpmsg_send_message(message);
-		if (status < 0) {
-			printk("send_message(%u) failed with status %d\n", message, status);
-			break;
-		}
-
-		message = rpmsg_receive_message();
-		printk("Master core received a message: %u\n", message);
-
-		message++;
-	}
-
-	printk("RPMsg Service demo ended.\n");
-}
-
-/* Register endpoint before RPMsg Service initialization. */
-static int rpmsg_register_endpoint(void)
-{
-	int status;
-
-	status = rpmsg_service_register_endpoint(rpmsg_endpoint_name, rpmsg_endpoint_cb);
-	if (status < 0) {
-		printk("v%d: rpmsg_service_register_endpoint(%s) failed %d\n", version, rpmsg_endpoint_name, status);
-		return status;
-	}
-
-	rpmsg_ep_id = status;
-	printk("v%d: rpmsg_service_register_endpoint(%s) ok: ep_id=%d\n", version, rpmsg_endpoint_name, rpmsg_ep_id);
-	return 0;
-}
-
-SYS_INIT(rpmsg_register_endpoint, POST_KERNEL, CONFIG_RPMSG_SERVICE_EP_REG_PRIORITY);
-#endif // CONFIG_RPMSG_SERVICE
-
-static int bootmark_pre_kernel(void)
-{
-	printk("[BOOTMARK] PRE_KERNEL reached uptime_ms=%u\n", k_uptime_get_32());
-	return 0;
-}
-
-static int bootmark_post_kernel(void)
-{
-	printk("[BOOTMARK] POST_KERNEL reached uptime_ms=%u\n", k_uptime_get_32());
-	LOG_ERR("[BOOTMARK] POST_KERNEL");
-	return 0;
-}
-
-static int bootmark_application(void)
-{
-	printk("[BOOTMARK] APPLICATION init reached uptime_ms=%u\n", k_uptime_get_32());
-	LOG_ERR("[BOOTMARK] APPLICATION");
-	return 0;
-}
-
-SYS_INIT(bootmark_pre_kernel, PRE_KERNEL_1, 20);
-SYS_INIT(bootmark_post_kernel, POST_KERNEL, 20);
-SYS_INIT(bootmark_application, APPLICATION, 20);
-
-/*
-ISR_GPIO_DIRECT
-
-The Direct Interrupt Service Routine (ISR) bypasses the zephyr HAL
-*/
-
-#ifdef EXTI
-ISR_DIRECT_DECLARE(exti15_10_direct_isr)
-{
-	uint32_t pending = EXTI->PR & EXTI_DIRECT_LINES;
-
-	if (pending == 0U) {
-		return 0;
-	}
-
-	/* Clear pending bits first to minimize IRQ service latency. */
-	EXTI->PR = pending;
-
-	if ((pending & EXTI_GPIO_DIRECT_IN_LINE) != 0U) {
-		if ((GPIO_DIRECT_IN->IDR & BIT(gpio_direct_in.pin)) != 0U) {
-			GPIO_DIRECT_OUT->BSRR = BIT(gpio_direct_out.pin);
-		} else {
-			GPIO_DIRECT_OUT->BSRR = BIT(gpio_direct_out.pin + 16);
-		}
-	}
-
-	if ((pending & EXTI_GPIO_DIRECT_BUTTON_IN_LINE) != 0U) {
-		if ((GPIO_DIRECT_BUTTON_IN->IDR & BIT(gpio_direct_button_in.pin)) != 0U) {
-			GPIO_DIRECT_LED_OUT->BSRR = BIT(gpio_direct_led_out.pin);
-		} else {
-			GPIO_DIRECT_LED_OUT->BSRR = BIT(gpio_direct_led_out.pin + 16);
-		}
-	}
-
-	return 0;
-}
-#endif // EXTI
-
-static int init_isr_gpioDirect(void)
-{
-	int ret;
-
-	/*
-	gpio_direct_button_in
-	gpio_direct_led_out
-	*/
-	if (!device_is_ready(gpio_direct_button_in.port)) {
-		LOG_ERR("button input device not ready");
-		return -ENODEV;
-	}
-
-	if (!device_is_ready(gpio_direct_led_out.port)) {
-		LOG_ERR("led0 output device not ready");
-		return -ENODEV;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_direct_led_out, GPIO_OUTPUT_INACTIVE);
-	if (ret != 0) {
-		LOG_ERR("led0 configure failed: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_direct_button_in, GPIO_INPUT);
-	if (ret != 0) {
-		LOG_ERR("gpio_direct_button_in configure failed: %d", ret);
-		return ret;
-	}
-
-	LOG_INF("isr_button_led ready (in: port=%s pin=%d, out: port=%s pin=%d)",
-		gpio_direct_button_in.port->name, gpio_direct_button_in.pin, gpio_direct_led_out.port->name, gpio_direct_led_out.pin);
-
-    /*
-	gpio_direct_in
-	gpio_direct_out
-	*/
-	if (!device_is_ready(gpio_direct_in.port)) {
-		LOG_ERR("GPIO_DIRECT_IN device not ready");
-		return -ENODEV;
-	}
-
-	if (!device_is_ready(gpio_direct_out.port)) {
-		LOG_ERR("GPIO_DIRECT_OUT device not ready");
-		return -ENODEV;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_direct_in, GPIO_INPUT);
-	if (ret != 0) {
-		LOG_ERR("gpio_direct_in configure failed: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_direct_out, GPIO_OUTPUT_INACTIVE);
-	if (ret != 0) {
-		LOG_ERR("gpio_direct_out configure failed: %d", ret);
-		return ret;
-	}
-
-#ifdef EXTI
-	/* PC13 (button) and PF15 (GPIO_DIRECT_IN) share EXTI15_10. Handle both directly. */
-	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
-	SYSCFG->EXTICR[3] &= ~(SYSCFG_EXTICR4_EXTI13 | SYSCFG_EXTICR4_EXTI15);
-	SYSCFG->EXTICR[3] |= SYSCFG_EXTICR4_EXTI13_PC | SYSCFG_EXTICR4_EXTI15_PF;
-
-	EXTI->IMR |= EXTI_DIRECT_LINES;
-	EXTI->RTSR |= EXTI_DIRECT_LINES;
-	EXTI->FTSR |= EXTI_DIRECT_LINES;
-	EXTI->PR = EXTI_DIRECT_LINES;
-
-	IRQ_DIRECT_CONNECT(EXTI15_10_IRQn, GPIO_DIRECT_IRQ_PRIO,
-			exti15_10_direct_isr, GPIO_DIRECT_IRQ_FLAGS);
-	irq_enable(EXTI15_10_IRQn);
-
-	/* EXTI15_10 is serviced by the direct IRQ handler for low-latency comparison. */
-#endif // EXTI
-
-	LOG_INF("ISR_GPIO_DIRECT ready (in: port=%s pin=%d, out: port=%s pin=%d)",
-		gpio_direct_in.port->name, gpio_direct_in.pin,
-		gpio_direct_out.port->name, gpio_direct_out.pin);
-	
-	return 0;
-}
-
-/*
-isrGpioHAL
-
-Interrupt Service Routine (ISR) using the zephyr HAL
-*/
-#if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, gpio_hal_in_gpios)
-static void callback_isr_gpioHAL(const struct device *port, struct gpio_callback *cb, uint32_t pins)
-{
-	ARG_UNUSED(port);
-	ARG_UNUSED(cb);
-	ARG_UNUSED(pins);
-
-	int in_val = gpio_pin_get_dt(&gpio_hal_in);
-	if (in_val >= 0) {
-		(void)gpio_pin_set_dt(&gpio_hal_out, in_val > 0);
-	}
-}
-
-static int init_isr_gpioHAL(void)
-{
-	int ret;
-
-	if (!device_is_ready(gpio_hal_in.port)) {
-		LOG_ERR("GPIO input device not ready");
-		return -ENODEV;
-	}
-
-	if (!device_is_ready(gpio_hal_out.port)) {
-		LOG_ERR("GPIO output device not ready");
-		return -ENODEV;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_hal_in, GPIO_INPUT);
-	if (ret != 0) {
-		LOG_ERR("gpio_hal_in configure failed: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_configure_dt(&gpio_hal_out, GPIO_OUTPUT_INACTIVE);
-	if (ret != 0) {
-		LOG_ERR("gpio_hal_out configure failed: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_interrupt_configure_dt(&gpio_hal_in, GPIO_INT_EDGE_BOTH);
-	if (ret != 0) {
-		LOG_ERR("gpio_hal_in irq configure failed: %d", ret);
-		return ret;
-	}
-
-	gpio_init_callback(&gpio_callback_isr_gpioHAL, callback_isr_gpioHAL, BIT(gpio_hal_in.pin));
-	ret = gpio_add_callback(gpio_hal_in.port, &gpio_callback_isr_gpioHAL);
-	if (ret != 0) {
-		LOG_ERR("gpio_hal_in add callback failed: %d", ret);
-		return ret;
-	}
-
-	LOG_INF("ISR_GPIO_HAL ready (in: port=%s pin=%d, out: port=%s pin=%d)",
-		gpio_hal_in.port->name, gpio_hal_in.pin, gpio_hal_out.port->name, gpio_hal_out.pin);
-	return 0;
-}
-#endif // gpio_hal_in_gpios
-
-/*
-DAC/ADC
-*/
-#if defined(CONFIG_ADC)
-static void init_adc_dac(void)
-{
-	if (device_is_ready(dac1_dev)) {
-		struct dac_channel_cfg dac_cfg = {
-			.channel_id = 1,
-			.resolution = 12,
-		};
-		int ret = dac_channel_setup(dac1_dev, &dac_cfg);
-		if (ret == 0) {
-			LOG_INF("DAC1 channel 1 configured");
-		} else {
-			LOG_WRN("DAC1 channel setup failed: %d", ret);
-		}
-	} else {
-		LOG_WRN("DAC1 not ready");
-	}
-
-	if (device_is_ready(adc1_dev)) {
-		struct adc_channel_cfg adc_cfg = {
-			.channel_id = 3,
-			.gain = ADC_GAIN_1,
-			.reference = ADC_REF_INTERNAL,
-			.acquisition_time = ADC_ACQ_TIME_DEFAULT,
-		};
-		int ret = adc_channel_setup(adc1_dev, &adc_cfg);
-		if (ret == 0) {
-			LOG_INF("ADC1 channel 3 configured");
-		} else {
-			LOG_WRN("ADC1 channel setup failed: %d", ret);
-		}
-	} else {
-		LOG_WRN("ADC1 not ready");
-	}
-
-	LOG_INF("ADC readiness: adc1=%d adc2=%d adc3=%d",
-		device_is_ready(adc1_dev),
-		device_is_ready(adc2_dev),
-		device_is_ready(adc3_dev));
-}
-
-static void endless_loop_adc_dac(void)
-{
-	uint16_t dac2_value = 0;
-	float angle = 0.0;
+	/* start the rpmsg clients */
+	k_sem_give(&data_sc_sem);
+	k_sem_give(&data_tty_sem);
 
 	while (1) {
-        // DAC1: Read ADC1 and write to DAC1
-		if (device_is_ready(dac1_dev) && device_is_ready(adc1_dev)) {
-			uint16_t adc1_value;
-			struct adc_sequence seq = {
-				.channels = BIT(3),
-				.buffer = &adc1_value,
-				.buffer_size = sizeof(adc1_value),
-				.resolution = 12,
-			};
-			// Read ADC1
-			if (adc_read(adc1_dev, &seq) == 0) {
-				// Write ADC1 value to DAC1
-				(void)dac_write_value(dac1_dev, 1, adc1_value);
-			}
-		}
-
-        // DAC2: calculate a sin and write it to DAC2 as fast as possible.
-		if (device_is_ready(dac1_dev)) {
-			// Calculate sine wave value for DAC2
-			dac2_value = (uint16_t)((sinf(angle) + 1.0f) * 2047.5f); // Scale to 12-bit range
-			(void)dac_write_value(dac1_dev, 2, dac2_value);
-			angle += 0.1f; // Increment angle
-			if (angle >= 2 * M_PI) {
-				angle -= 2 * M_PI;
-			}
-		}
+		receive_message(&msg, &len);
 	}
+
+task_end:
+	cleanup_system();
+
+	LOG_INF("OpenAMP demo ended");
 }
-#endif // CONFIG_ADC
 
 int main(void)
 {
-	// printk("[BOOTMARK] main() entered uptime_ms=%u\n", k_uptime_get_32());
-    // LOG_WRN("hello 4");
-    // LOG_ERR("hello 4");
-	// printk("Hallo 4\n");
-	// k_sleep(K_FOREVER);
-	// return 1;
-
-#if defined(CONFIG_RPMSG_SERVICE)
-	printk("Starting RPMsg application thread (ep_id=%d, uptime_ms=%u)\n",
-	       rpmsg_ep_id, k_uptime_get_32());
-	k_thread_create(&rpmsg_thread_data, rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE,
-			rpmsg_app_task, NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
-#if defined(CONFIG_SOC_AN521) || defined(CONFIG_SOC_MUSCA_B1)
-#error "Should never get here..."
-	wakeup_cpu1();
-	k_msleep(500);
-#endif
-#endif // CONFIG_RPMSG_SERVICE
-
-#if defined(CONFIG_ADC)
-	init_adc_dac();
-
-	endless_loop_adc_dac();
-#endif // CONFIG_ADC
-
-	/* Keep the M7 firmware alive so MU/mailbox kicks and RPMsg traffic
-	 * can continue to be serviced by the platform and ISR handlers.
-	 */
-	k_sleep(K_FOREVER);
-
+	LOG_INF("Starting application threads!");
+	k_thread_create(&thread_mng_data, thread_mng_stack, APP_TASK_STACK_SIZE,
+			rpmsg_mng_task,
+			NULL, NULL, NULL, K_PRIO_COOP(8), 0, K_NO_WAIT);
+	k_thread_create(&thread_rp__client_data, thread_rp__client_stack, APP_TASK_STACK_SIZE,
+			app_rpmsg_client_sample,
+			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
+	k_thread_create(&thread_tty_data, thread_tty_stack, APP_TTY_TASK_STACK_SIZE,
+			app_rpmsg_tty,
+			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 	return 0;
 }
+
