@@ -202,7 +202,6 @@ SYS_INIT(rpmsg_register_endpoint, POST_KERNEL, CONFIG_RPMSG_SERVICE_EP_REG_PRIOR
 static int bootmark_pre_kernel(void)
 {
 	printk("[BOOTMARK] PRE_KERNEL reached uptime_ms=%u\n", k_uptime_get_32());
-	LOG_ERR("[BOOTMARK] PRE_KERNEL");
 	return 0;
 }
 
