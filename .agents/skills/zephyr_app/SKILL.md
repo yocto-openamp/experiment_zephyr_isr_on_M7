@@ -3,6 +3,8 @@ name: zephyr_app
 description: zephyr_app demonstrates the use of OpenAMP rpmsg on the M7 side.
 ---
 
+sudo does NOT require a password!
+
 ## Build
 
 As user torizon: `./run_1_build_imx8mp.sh`

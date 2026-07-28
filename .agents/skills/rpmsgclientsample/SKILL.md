@@ -3,6 +3,8 @@ name: rpmsgclientsample
 description: rpmsgclientsample demonstrates the use of OpenAMP rpmsg on the linux side.
 ---
 
+sudo does NOT require a password!
+
 ## Build
 
 As user torizon:
@@ -15,3 +17,4 @@ cd rpmsgclientsample
 ## Run rpmsgclientsample
 
 As user root: `rpmsgclientsample/rpmsgclientsample`
+

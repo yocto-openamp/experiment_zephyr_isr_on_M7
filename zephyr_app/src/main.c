@@ -100,6 +100,8 @@ static volatile unsigned int rpmsg_received_data;
 static K_SEM_DEFINE(rpmsg_data_rx_sem, 0, 1);
 static int rpmsg_ep_id;
 static volatile uint32_t rpmsg_rx_count;
+static const char* rpmsg_endpoint_name = "demo";
+static const int version = 6;
 
 static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 			     uint32_t src, void *priv)
@@ -183,19 +185,44 @@ static int rpmsg_register_endpoint(void)
 {
 	int status;
 
-	status = rpmsg_service_register_endpoint("demo", rpmsg_endpoint_cb);
+	status = rpmsg_service_register_endpoint(rpmsg_endpoint_name, rpmsg_endpoint_cb);
 	if (status < 0) {
-		printk("rpmsg_service_register_endpoint(demo) failed %d\n", status);
+		printk("v%d: rpmsg_service_register_endpoint(%s) failed %d\n", version, rpmsg_endpoint_name, status);
 		return status;
 	}
 
 	rpmsg_ep_id = status;
-	printk("rpmsg_service_register_endpoint(demo) ok: ep_id=%d\n", rpmsg_ep_id);
+	printk("v%d: rpmsg_service_register_endpoint(%s) ok: ep_id=%d\n", version, rpmsg_endpoint_name, rpmsg_ep_id);
 	return 0;
 }
 
 SYS_INIT(rpmsg_register_endpoint, POST_KERNEL, CONFIG_RPMSG_SERVICE_EP_REG_PRIORITY);
 #endif // CONFIG_RPMSG_SERVICE
+
+static int bootmark_pre_kernel(void)
+{
+	printk("[BOOTMARK] PRE_KERNEL reached uptime_ms=%u\n", k_uptime_get_32());
+	LOG_ERR("[BOOTMARK] PRE_KERNEL");
+	return 0;
+}
+
+static int bootmark_post_kernel(void)
+{
+	printk("[BOOTMARK] POST_KERNEL reached uptime_ms=%u\n", k_uptime_get_32());
+	LOG_ERR("[BOOTMARK] POST_KERNEL");
+	return 0;
+}
+
+static int bootmark_application(void)
+{
+	printk("[BOOTMARK] APPLICATION init reached uptime_ms=%u\n", k_uptime_get_32());
+	LOG_ERR("[BOOTMARK] APPLICATION");
+	return 0;
+}
+
+SYS_INIT(bootmark_pre_kernel, PRE_KERNEL_1, 20);
+SYS_INIT(bootmark_post_kernel, POST_KERNEL, 20);
+SYS_INIT(bootmark_application, APPLICATION, 20);
 
 /*
 ISR_GPIO_DIRECT
@@ -464,7 +491,12 @@ static void endless_loop_adc_dac(void)
 
 int main(void)
 {
-    LOG_WRN("hello 3");
+	// printk("[BOOTMARK] main() entered uptime_ms=%u\n", k_uptime_get_32());
+    // LOG_WRN("hello 4");
+    // LOG_ERR("hello 4");
+	// printk("Hallo 4\n");
+	// k_sleep(K_FOREVER);
+	// return 1;
 
 #if defined(CONFIG_RPMSG_SERVICE)
 	printk("Starting RPMsg application thread (ep_id=%d, uptime_ms=%u)\n",
@@ -472,6 +504,7 @@ int main(void)
 	k_thread_create(&rpmsg_thread_data, rpmsg_thread_stack, CONFIG_MAIN_STACK_SIZE,
 			rpmsg_app_task, NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 #if defined(CONFIG_SOC_AN521) || defined(CONFIG_SOC_MUSCA_B1)
+#error "Should never get here..."
 	wakeup_cpu1();
 	k_msleep(500);
 #endif
