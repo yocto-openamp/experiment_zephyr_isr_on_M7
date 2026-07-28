@@ -1,3 +1,7 @@
+/*
+Copied from: https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/subsys/ipc/openamp_rsc_table/boards/imx8mp_evk_mimx8ml8_m7.overlay
+*/
+
 #include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
@@ -21,6 +25,10 @@
 		/* led1 = &blue_led */
 		gpio-direct-led-out-gpios = <&gpio3 13 GPIO_ACTIVE_HIGH>;
 	};
+};
+
+&mailbox0 {
+	status = "okay";
 };
 
 / {
