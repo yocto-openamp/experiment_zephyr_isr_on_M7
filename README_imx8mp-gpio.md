@@ -45,5 +45,5 @@ echo 23 > /sys/class/gpio/unexport
 
 | gpio | | |
 | - | - | - |
-| GPIO_STIMULI | GPIO1_IO00 | 
+| GPIO_STIMULI | GPIO1_IO00 | gpioset gpiochip0 0=0 |
 | GPIO_RESPONSE |  GPIO1_IO01 | 
